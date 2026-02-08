@@ -6,3 +6,4 @@ sentence-transformers
 faiss-cpu
 pillow
 numpy
+lancedb

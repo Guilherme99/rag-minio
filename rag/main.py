@@ -1,58 +1,69 @@
+import tempfile
 from minio_client import get_minio_client, list_images
-from embedding import ImageEmbedder
-from vector_store import VectorStore
+from embedding_utils import ImageEmbedder
+from lancedb_store import LanceDBStore
 from rag_pipeline import RAGPipeline
-from utils import save_temp_image
 from config import *
 
-TOP_K = 3
+def save_temp_image(data):
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+    tmp.write(data)
+    tmp.close()
+    return tmp.name
 
 def main():
-    print("🚀 RAG IMAGEM + MINIO + OLLAMA")
+    print("🚀 RAG MINIO + LANCEDB + OLLAMA")
 
     minio = get_minio_client()
-    embedder = ImageEmbedder(EMBEDDING_MODEL)
-    vector_store = VectorStore(dim=512)
+    embedder = ImageEmbedder()
+    store = LanceDBStore()
     rag = RAGPipeline()
 
-    print("📦 Indexando imagens do MinIO...")
+    print("📦 Indexando imagens (modo híbrido)...")
 
     objects = list_images()
 
     for obj in objects:
         data = minio.get_object(MINIO_BUCKET, obj["object_name"]).read()
-        img_path = save_temp_image(data)
+        path = save_temp_image(data)
 
-        embedding = embedder.embed_image(img_path)
-        vector_store.add(embedding, obj)
+        vector = embedder.embed_hybrid(path, obj["metadata"])
+        store.add(vector, obj)
 
-    print(f"✅ {len(objects)} imagens indexadas")
+    print("✅ Indexação concluída:", len(objects))
 
-    question = input("\n❓ Pergunta: ")
 
-    query_embedding = embedder.model.encode(question).astype("float32")
+    while True:
+        question = input("\n❓ Pergunta: ")
 
-    results = vector_store.search(query_embedding, k=TOP_K)
+        query_vector = embedder.embed_text(question)
+        results = store.search(query_vector, TOP_K)
 
-    print("\n📦 OBJETOS RECUPERADOS:")
-    for r in results:
-        print(r)
+        print("\n📦 Ranking:")
+        for r in results:
+            print(r["object_name"], "->", round(float(r["score"]), 3))
 
-    # 🔹 Construção do contexto multimodal
-    context = "Resultados recuperados:\n"
+        # menor distância = melhor
+        best = min(results, key=lambda x: x["score"])
 
-    for i, r in enumerate(results, 1):
-        context += f"""
-Resultado {i}
-Objeto: {r['object_name']}
-Metadados: {r['metadata']}
-Similaridade (distância L2): {r['score']}
-"""
+        similarity = round(float(best["score"]), 3)
 
-    answer = rag.answer(context, question)
+        payload = {
+            "existe": similarity,
+            "objetos": []
+        }
 
-    print("\n🧠 RESPOSTA DO LLM:")
-    print(answer)
+        payload["objetos"].append({
+            "object_name": best["object_name"],
+            "similarity": similarity,
+            "metadata": best["metadata"]
+        })
+
+        answer = rag.format_answer(payload)
+
+        print("\n📊 RESULTADO JSON:")
+        print(answer)
+
 
 
 if __name__ == "__main__":
