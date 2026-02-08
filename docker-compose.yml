@@ -1,0 +1,16 @@
+version: "3.9"
+
+services:
+  storage:
+    image: docker.io/bitnamilegacy/minio
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    env_file:
+      - .env
+    environment:
+      - MINIO_BROWSER=on
+      - MINIO_CONSOLE_PORT=9001
+    
+

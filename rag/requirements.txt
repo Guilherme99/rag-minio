@@ -1,0 +1,8 @@
+minio
+langchain
+langchain-community
+langchain-ollama
+sentence-transformers
+faiss-cpu
+pillow
+numpy
