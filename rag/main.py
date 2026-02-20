@@ -1,3 +1,4 @@
+import os
 import tempfile
 import numpy as np
 
@@ -6,6 +7,30 @@ from embedding_utils import ImageEmbedder
 from lancedb_store import LanceDBStore
 from config import *
 from rag_pipeline import RAGPipeline
+
+
+# ============================================================
+# GROUND TRUTH AUTOMÁTICO
+# ============================================================
+
+def build_ground_truth(root_dir="."):
+    ground_truth = {}
+
+    for pasta in os.listdir(root_dir):
+        print(pasta)
+
+        if(pasta in ["cat", "dog", "person", "landscape"]):
+            caminho = os.path.join(root_dir, pasta)
+
+            if os.path.isdir(caminho):
+                arquivos = [
+                    f for f in os.listdir(caminho)
+                    if os.path.isfile(os.path.join(caminho, f))
+                ]
+                if arquivos:
+                    ground_truth[pasta] = arquivos
+
+    return ground_truth
 
 
 # ============================================================
@@ -20,7 +45,7 @@ def save_temp_image(data):
 
 
 # ============================================================
-# AVALIAÇÃO DE RECUPERAÇÃO
+# AVALIAÇÃO
 # ============================================================
 
 def evaluate_retrieval(ground_truth, embedder, store, top_k=5):
@@ -34,39 +59,31 @@ def evaluate_retrieval(ground_truth, embedder, store, top_k=5):
     relevant_scores = []
     irrelevant_scores = []
 
-    questions = list(ground_truth.keys())
-    total_queries = len(questions)
+    total_queries = len(ground_truth.keys())
 
-    for q in questions:
+    for label, gt_files in ground_truth.items():
 
-        query_vector = embedder.embed_text(q)
+        query_vector = embedder.embed_text(label)
         results = store.search(query_vector, top_k)
 
         ranked_names = [r["object_name"] for r in results]
         ranked_scores = [float(r["score"]) for r in results]
 
-        gt_set = set(ground_truth[q])
+        gt_set = set(gt_files)
 
-        # -------------------------
-        # Recall@K
-        # -------------------------
         hits = [name for name in ranked_names if name in gt_set]
+        print(hits)
+        # Recall@K
         recall_total += len(hits) / len(gt_set)
 
-        # -------------------------
         # Precision@K
-        # -------------------------
         precision_total += len(hits) / top_k
 
-        # -------------------------
         # HitRate@K
-        # -------------------------
-        if len(hits) > 0:
+        if hits:
             hit_rate_total += 1
 
-        # -------------------------
         # MRR
-        # -------------------------
         reciprocal_rank = 0
         for idx, name in enumerate(ranked_names):
             if name in gt_set:
@@ -74,12 +91,9 @@ def evaluate_retrieval(ground_truth, embedder, store, top_k=5):
                 break
         mrr_total += reciprocal_rank
 
-        # -------------------------
-        # Average Precision (AP)
-        # -------------------------
+        # AP
         num_correct = 0
         precision_acc = 0
-
         for idx, name in enumerate(ranked_names):
             if name in gt_set:
                 num_correct += 1
@@ -87,9 +101,7 @@ def evaluate_retrieval(ground_truth, embedder, store, top_k=5):
 
         ap_total += precision_acc / len(gt_set)
 
-        # -------------------------
-        # Similaridade relevante vs irrelevante
-        # -------------------------
+        # Scores
         for name, score in zip(ranked_names, ranked_scores):
             if name in gt_set:
                 relevant_scores.append(score)
@@ -110,7 +122,7 @@ def evaluate_retrieval(ground_truth, embedder, store, top_k=5):
 
         metrics["MeanRelevantScore"] = mean_rel
         metrics["MeanIrrelevantScore"] = mean_irrel
-        metrics["SemanticGap"] = mean_irrel - mean_rel
+        metrics["SemanticGap"] = mean_rel - mean_irrel  # corrigido
 
     return metrics
 
@@ -128,50 +140,42 @@ def main():
     store = LanceDBStore()
     rag = RAGPipeline()
 
-    print("📦 Indexando imagens (modo híbrido)...")
+    print("📦 Indexando imagens...")
 
     objects = list_images()
 
     for obj in objects:
-
         data = minio.get_object(MINIO_BUCKET, obj["object_name"]).read()
         path = save_temp_image(data)
 
-        vector = embedder.embed_hybrid(path, obj["metadata"])
+        vector = embedder.embed_image(path)
+        # vector = embedder.embed_hybrid(path, obj["metadata"])
         store.add(vector, obj)
 
     print("✅ Indexação concluída:", len(objects))
 
-    # ========================================================
-    # GROUND TRUTH (EDITE AQUI COM SEUS NOMES REAIS)
-    # ========================================================
+    # GROUND TRUTH AUTOMÁTICO
+    ground_truth = build_ground_truth(".")
 
-    ground_truth = {
-        "cachorro": ["1.jpg", "2.PNG"],
-        "camisa laranja": ["3.PNG"],
-        "camisa vermelha": ["4.PNG"],
-        "presidente": ["2.jpg"]
-    }
+    print("\nGround truth detectado:")
+    print(ground_truth)
 
-    # ========================================================
-    # ESCOLHA DE MODO
-    # ========================================================
+    mode = input("\nDigite '1' para avaliação ou '2' para interativo: ")
 
-    mode = input("\nDigite '1' para rodar avaliação ou 2 para modo interativo: ")
+    if mode == "1":
 
-    if mode.lower() == "1":
-
-        metrics = evaluate_retrieval(ground_truth, embedder, store, TOP_K)
+        metrics = evaluate_retrieval(
+            ground_truth,
+            embedder,
+            store,
+            TOP_K
+        )
 
         print("\n===== MÉTRICAS =====")
         for k, v in metrics.items():
             print(f"{k}: {round(v, 4)}")
 
         return
-
-    # ========================================================
-    # MODO INTERATIVO
-    # ========================================================
 
     while True:
 
@@ -182,10 +186,12 @@ def main():
 
         print("\n📦 Ranking:")
         for r in results:
-            print(r["object_name"], "->", round(float(r["score"]), 3))
+            print(r["object_name"], "->", round(float(r["score"]), 4))
 
-        best = min(results, key=lambda x: x["score"])
-        similarity = round(float(best["score"]), 3)
+        # Se for cosine similarity use max
+        best = max(results, key=lambda x: x["score"])
+
+        similarity = round(float(best["score"]), 4)
 
         payload = {
             "existe": similarity,

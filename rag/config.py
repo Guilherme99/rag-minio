@@ -13,4 +13,4 @@ EMBEDDING_MODEL = "sentence-transformers/clip-ViT-B-32"
 SIMILARITY_THRESHOLD = 0.35
 MIN_SCORE_MARGIN = 0.02
 
-TOP_K = 3
+TOP_K = 5
