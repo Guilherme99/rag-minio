@@ -1,4 +1,4 @@
 .env
 venv
-lancedb
+/lancedb
 rag\__pycache__

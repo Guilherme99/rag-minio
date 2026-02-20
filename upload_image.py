@@ -18,24 +18,23 @@ if not client.bucket_exists(BUCKET):
     client.make_bucket(BUCKET)
 
 # for com 50 imagens, use um loop para iterar sobre os arquivos e enviar cada um
-for i in range(1, 51):
-    image_path = f"imgs/1.png"
-    object_name = f"imagem_{i}.png"
+# for i in range(1, 51):
+image_path = f"imgs/coelho.png"
+object_name = f"imagem6.png"
 
-        
-    metadata = {
-        "tipo": f"lesao_cutanea_{i}",
-        "area": f"dermatologia_{i}",
-        "paciente_id": f"{i}",
-        "ano": f"202{i}"
-    }
+    
+metadata = {
+    "tipo": f"animal",
+    "cor": f"marrom",
+    "tamanho": f"medio"
+}
 
-    client.fput_object(
-        BUCKET,
-        object_name,
-        image_path,
-        content_type="image/png",
-        metadata=metadata
-    )
+client.fput_object(
+    BUCKET,
+    object_name,
+    image_path,
+    content_type="image/png",
+    metadata=metadata
+)
 
 print("✅ Imagens enviadas com sucesso!")
