@@ -3,19 +3,36 @@ from PIL import Image
 from sentence_transformers import SentenceTransformer
 from config import EMBEDDING_MODEL
 
+
 class ImageEmbedder:
+
     def __init__(self, alpha=0.7):
         self.model = SentenceTransformer(EMBEDDING_MODEL)
         self.alpha = alpha
 
+    # =====================================================
+
+    def _normalize(self, vec):
+        vec = np.array(vec, dtype="float32")
+        norm = np.linalg.norm(vec)
+        if norm == 0:
+            return vec
+        return vec / norm
+
+    # =====================================================
+
     def embed_image(self, path: str):
         img = Image.open(path).convert("RGB")
-        vec = self.model.encode(img, normalize_embeddings=True)
-        return np.array(vec, dtype="float32")
+        vec = self.model.encode(img)
+        return self._normalize(vec)
+
+    # =====================================================
 
     def embed_text(self, text: str):
-        vec = self.model.encode(text, normalize_embeddings=True)
-        return np.array(vec, dtype="float32")
+        vec = self.model.encode(text)
+        return self._normalize(vec)
+
+    # =====================================================
 
     def embed_hybrid(self, image_path: str, metadata: dict | None):
         image_vec = self.embed_image(image_path)
@@ -32,7 +49,7 @@ class ImageEmbedder:
             return image_vec
 
         text_vec = self.embed_text(
-            f"imagem relacionada a: {metadata_text}"
+            f"photo of {metadata_text}"
         )
 
         hybrid = (
@@ -40,5 +57,9 @@ class ImageEmbedder:
             text_vec * (1 - self.alpha)
         )
 
-        hybrid = hybrid / np.linalg.norm(hybrid)
-        return hybrid.astype("float32")
+        return self._normalize(hybrid)
+
+    # =====================================================
+
+    def cosine_similarity(self, v1, v2):
+        return float(np.dot(v1, v2))
